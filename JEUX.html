@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="https://aframe.io/releases/1.2.0/aframe.min.js"></script>
+  </head>
+  <body>
+    <script>
+      var bullets = [];
+      var score = 0;
+      var playerHealth = 100;
+
+		AFRAME.registerComponent('start-menu', {
+          init: function () {
+            var startMenu = document.querySelector('#startMenu');
+            var gameScene = document.querySelector('#gameScene');
+            
+            // Hide the start menu after 2 seconds
+            setTimeout(function() {
+              startMenu.setAttribute('visible', 'false');
+              gameScene.setAttribute('visible', 'true');
+            }, 2000);
+          }
+        });
+
+      // Function to create a bullet
+      function createBullet() {
+        var bullet = document.createElement("a-box");
+        bullet.setAttribute("color", "blue");
+        bullet.setAttribute("scale", "0.1 0.1 0.3");
+        bullet.setAttribute("position", "0 0 0");
+        bullet.setAttribute("dynamic-body", "");
+        bullet.classList.add("bullet");
+
+        var camera = document.getElementById("camera");
+        var cameraPosition = camera.getAttribute("position");
+        var cameraRotation = camera.getAttribute("rotation");
+
+        bullet.setAttribute("position", cameraPosition);
+        bullet.setAttribute("rotation", cameraRotation);
+
+        var scene = document.querySelector("a-scene");
+        scene.appendChild(bullet);
+
+        bullets.push(bullet);
+      }
+
+      // Function to update the positions of bullets
+      function updateBulletPositions() {
+        for (var i = 0; i < bullets.length; i++) {
+          var bullet = bullets[i];
+          var position = bullet.getAttribute("position");
+          var rotation = bullet.getAttribute("rotation");
+          var theta = THREE.Math.degToRad(-rotation.y); // Subtract 90 degrees to adjust the direction
+
+          var deltaX = Math.sin(theta) * 0.3;
+          var deltaY = Math.sin(THREE.Math.degToRad(-rotation.x)) * 0.3;
+          var deltaZ = Math.cos(theta) * 0.3;
+
+          position.x += deltaX;
+          position.y -= deltaY; // Adjust the y-coordinate based on rotation around x-axis
+          position.z -= deltaZ;
+
+          bullet.setAttribute("position", position);
+          checkCollision(bullet); // Check for collision with enemies
+        }
+      }
+
+      // Function to update enemy positions and attack the player
+      function updateEnemyPositions() {
+        var enemies = document.getElementsByClassName("enemy");
+        var playerPosition = document.getElementById("camera").getAttribute("position");
+
+        for (var i = 0; i < enemies.length; i++) {
+          var enemy = enemies[i];
+          var enemyPosition = enemy.getAttribute("position");
+          var direction = playerPosition.clone().sub(enemyPosition).normalize();
+          var speed = 0.02; // Adjust the enemy speed as needed
+
+          var distance = enemyPosition.distanceTo(playerPosition);
+          var minDistance = 1.0; // Minimum distance to maintain between enemy and player
+
+          if (distance < minDistance) {
+            // Enemy is close to the player, prevent further movement
+            direction.multiplyScalar(0); // Set the direction to zero
+          }
+
+          enemyPosition.add(direction.multiplyScalar(speed));
+          enemy.setAttribute("position", enemyPosition);
+
+          // Check if enemy touches the player
+          if (distance < 1) {
+            // Enemy attacks the player
+            takeDamage();
+          }
+
+          // Check for collision between enemies
+          for (var j = i + 1; j < enemies.length; j++) {
+            var otherEnemy = enemies[j];
+            var otherEnemyPosition = otherEnemy.getAttribute("position");
+            var distanceBetweenEnemies = enemyPosition.distanceTo(otherEnemyPosition);
+
+            if (distanceBetweenEnemies < 1.0) {
+              // Adjust positions to separate the enemies
+              var separationDistance = 1.1;
+              var separationVector = enemyPosition.clone().sub(otherEnemyPosition).normalize();
+              var enemySeparation = separationVector.clone().multiplyScalar(separationDistance / 2);
+              var otherEnemySeparation = separationVector.clone().multiplyScalar(-separationDistance / 2);
+
+              enemyPosition.add(enemySeparation);
+              otherEnemyPosition.add(otherEnemySeparation);
+
+              enemy.setAttribute("position", enemyPosition);
+              otherEnemy.setAttribute("position", otherEnemyPosition);
+            }
+          }
+        }
+      }
+
+      // Function to check for collision between bullets and enemies
+      function checkCollision(bullet) {
+        var enemies = document.getElementsByClassName("enemy");
+        for (var i = 0; i < enemies.length; i++) {
+          var enemy = enemies[i];
+          var bulletPosition = bullet.getAttribute("position");
+          var enemyPosition = enemy.getAttribute("position");
+          var distance = bulletPosition.distanceTo(enemyPosition);
+          if (distance < 0.5) {
+            // Collision detected
+            var scene = document.querySelector("a-scene");
+            scene.removeChild(enemy);
+            bullets.splice(bullets.indexOf(bullet), 1);
+            scene.removeChild(bullet);
+            score += 100;
+            updateScore();
+            return;
+          }
+        }
+      }
+
+      // Function to update the score display
+      function updateScore() {
+        var scoreDisplay = document.getElementById("score-display");
+        scoreDisplay.setAttribute("text", "value", "Score: " + score + " | Health: " + playerHealth);
+      }
+
+      // Function to handle player damage
+      var invincibilityTime = 500; // Adjust the invincibility time (in milliseconds) as desired
+      var canTakeDamage = true;
+
+      function takeDamage() {
+        if (canTakeDamage) {
+          playerHealth -= 10;
+          updateScore();
+          canTakeDamage = false;
+
+          if (playerHealth <= 0) {
+            location.reload(true);
+          }
+
+          setTimeout(function () {
+            canTakeDamage = true;
+          }, invincibilityTime);
+        }
+      }
+
+      // Function to detect the space key press
+      function onKeyPress(event) {
+        if (event.code === "Space") {
+          createBullet();
+        }
+      }
+
+      // Call the updateBulletPositions function on every frame
+      AFRAME.registerComponent("move-bullets", {
+        tick: function () {
+          updateBulletPositions();
+          updateEnemyPositions();
+        },
+      });
+
+      // Add event listener for the space key press
+      window.addEventListener("keydown", onKeyPress);
+
+      // Function to create a random enemy
+      function createRandomEnemy() {
+        var enemy = document.createElement("a-entity");
+        enemy.setAttribute("class", "enemy");
+        enemy.setAttribute("geometry", "primitive: box");
+        enemy.setAttribute("material", "color: red");
+        enemy.setAttribute("dynamic-body", "");
+        enemy.setAttribute("game-object", "");
+
+        // Generate random coordinates around the player
+        var playerPosition = document.getElementById("camera").getAttribute("position");
+        var minDistance = 3;
+        var maxDistance = 6;
+        var radius = Math.random() * (maxDistance - minDistance) + minDistance;
+        var angle = Math.random() * Math.PI * 2;
+        var x = playerPosition.x + radius * Math.cos(angle);
+        var z = playerPosition.z + radius * Math.sin(angle);
+        var y = 0; // Keep the enemy at ground level
+
+        enemy.setAttribute("position", x + " " + y + " " + z);
+
+        var scene = document.querySelector("a-scene");
+        scene.appendChild(enemy);
+      }
+
+      // Function to spawn new enemies at regular intervals
+		function spawnEnemies() {
+		  var initialInterval = 2000; // Initial interval between enemy spawns (in milliseconds)
+		  var minInterval = 500; // Minimum interval between enemy spawns (in milliseconds)
+		  var decreaseRate = 100; // Rate at which the interval decreases (in milliseconds)
+
+		  function spawnEnemy() {
+			createRandomEnemy();
+
+			initialInterval -= decreaseRate;
+			if (initialInterval < minInterval) {
+			  initialInterval = minInterval;
+			}
+
+			setTimeout(spawnEnemy, initialInterval);
+		  }
+
+		  setTimeout(spawnEnemy, initialInterval);
+		}
+
+		// Start spawning enemies
+		spawnEnemies();
+    </script>
+    <a-scene cursor="rayOrigin: mouse">
+	<!-- Start Menu -->
+      <a-entity id="startMenu" position="0 1.5 -4">
+        <a-text value="Welcome to the Game!" align="center" position="0 0.5 0" scale="2 2 2"></a-text>
+        <a-text value="Press space to shoot" align="center" position="0 -0.5 0" scale="1.5 1.5 1.5"></a-text>
+      </a-entity>
+	  <!-- Camera -->
+      <a-camera
+        id="camera"
+        look-controls="enabled: true"
+        wasd-controls="enabled: true"
+        position="0 1.6 0"
+        collision-filter="collisionForces: false"
+      >
+        <!-- Score Display -->
+        <a-entity
+          id="score-display"
+          text="value: Score: 0 | Health: 100; align: left; width: 2; color: black"
+          position="-2.7 2.4 -3"
+        ></a-entity>
+        <!-- Cursor -->
+        <a-cursor
+          geometry="primitive: ring; radiusInner: 0.02; radiusOuter: 0.03"
+          material="color: grey; shader: flat"
+          position="0 0 -1"
+        >
+        </a-cursor>
+      </a-camera>
+      <!-- Original Enemies -->
+      <a-entity
+        class="enemy"
+        position="0 0 -5"
+        geometry="primitive: box"
+        material="color: red"
+        dynamic-body=""
+        game-object=""
+      ></a-entity>
+      <a-entity
+        class="enemy"
+        position="2 0 -5"
+        geometry="primitive: box"
+        material="color: red"
+        dynamic-body=""
+        game-object=""
+      ></a-entity>
+      <a-entity
+        class="enemy"
+        position="-2 0 -5"
+        geometry="primitive: box"
+        material="color: red"
+        dynamic-body=""
+        game-object=""
+      ></a-entity>
+      <a-entity move-bullets></a-entity>
+      <a-plane id="floor" position="0 -0.1 0" rotation="-90 0 0" width="1500" height="1500" color="green"></a-plane>
+      <!-- Sky -->
+      <a-sky color="#87ceeb"></a-sky>
+      <!-- Sun -->
+      <a-entity position="0 50 -100">
+        <a-sphere id="sun" radius="2" position="0 0 0" material="color: yellow"></a-sphere>
+      </a-entity>
+	  <a-entity start-menu></a-entity>
+    </a-scene>
+  </body>
+</html>
